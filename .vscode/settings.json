@@ -1,0 +1,18 @@
+{
+  "terminal.integrated.defaultProfile.windows": "Gmail Parser",
+  "terminal.integrated.profiles.windows": {
+    "Gmail Parser": {
+      "source": "PowerShell",
+      "icon": "mail",
+      "args": [
+        "-NoExit",
+        "-Command",
+        ". '${workspaceFolder}\\profile.ps1'"
+      ]
+    },
+    "PowerShell": {
+      "source": "PowerShell",
+      "icon": "terminal-powershell"
+    }
+  }
+}
