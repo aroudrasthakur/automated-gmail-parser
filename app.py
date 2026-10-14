@@ -130,16 +130,22 @@ def auth():
         access_type="offline", include_granted_scopes="true", prompt="consent"
     )
     session["oauth_state"] = state
+    session["oauth_code_verifier"] = flow.code_verifier
     return redirect(auth_url)
 
 
 @app.get("/oauth2callback")
 def oauth2callback():
+    code_verifier = session.pop("oauth_code_verifier", None)
+    if not code_verifier:
+        return "OAuth session expired; start again from /auth.", 400
     flow = Flow.from_client_secrets_file(
         gmail_client.CREDENTIALS_FILE,
         scopes=gmail_client.SCOPES,
-        state=session.get("oauth_state"),
+        state=session.pop("oauth_state", None),
         redirect_uri=url_for("oauth2callback", _external=True),
+        code_verifier=code_verifier,
+        autogenerate_code_verifier=False,
     )
     flow.fetch_token(authorization_response=request.url)
     gmail_client.save_credentials(flow.credentials)
