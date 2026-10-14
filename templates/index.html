@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SweList Job Scanner</title>
+<style>
+  :root { --bg:#0f1115; --card:#171b22; --line:#262c37; --fg:#e6e9ef; --muted:#9aa3b2; --accent:#4f8cff; --ok:#3fb96f; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; background:var(--bg); color:var(--fg); }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 28px 20px 60px; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  .sub { color: var(--muted); font-size: 13px; margin-bottom: 22px; }
+  .card { background: var(--card); border:1px solid var(--line); border-radius: 12px; padding: 16px 18px; margin-bottom: 16px; }
+  .row { display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
+  .dot { width:9px; height:9px; border-radius:50%; background:var(--muted); display:inline-block; }
+  .dot.on { background: var(--ok); }
+  .dot.off { background:#d65a5a; }
+  button, .btn { background: var(--accent); color:#fff; border:0; border-radius:8px; padding:9px 16px; font-size:14px; cursor:pointer; text-decoration:none; }
+  button[disabled] { opacity:.5; cursor:default; }
+  .btn.ghost { background:transparent; border:1px solid var(--line); color:var(--fg); }
+  input[type=number] { width:64px; background:#0d1016; border:1px solid var(--line); color:var(--fg); border-radius:8px; padding:8px 10px; font-size:14px; }
+  label { font-size:14px; color:var(--muted); }
+  #progress { font-size:13px; color:var(--muted); margin-top:10px; min-height:18px; }
+  .bar { height:6px; background:#0d1016; border-radius:4px; overflow:hidden; margin-top:8px; }
+  .bar > div { height:100%; width:0%; background:var(--accent); transition:width .3s; }
+  table { width:100%; border-collapse: collapse; font-size: 14px; }
+  th, td { text-align:left; padding:10px 8px; border-bottom:1px solid var(--line); vertical-align:top; }
+  th { color:var(--muted); font-weight:600; font-size:12px; text-transform:uppercase; letter-spacing:.04em; }
+  td a { color: var(--accent); }
+  .count { font-size:13px; color:var(--muted); }
+  .tag { display:inline-block; font-size:11px; border:1px solid var(--line); border-radius:20px; padding:2px 8px; color:var(--muted); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>SweList Job Scanner</h1>
+  <div class="sub">Scans <b>noreply@swelist.com</b> "New Jobs Posted Today" emails, opens each Simplify link, and keeps jobs that <b>don't</b> say "No H1B Sponsorship" and are located in the USA.</div>
+
+  <div class="card row" id="authcard">
+    <span class="dot" id="authdot"></span>
+    <span id="authtext">Checking Gmail connection…</span>
+    <span style="flex:1"></span>
+    <a class="btn ghost" id="authbtn" href="/auth">Connect Gmail</a>
+  </div>
+
+  <div class="card">
+    <div class="row">
+      <label for="days">Scan emails from the last</label>
+      <input type="number" id="days" value="1" min="1" max="60">
+      <label>day(s)</label>
+      <button id="scanbtn" disabled>Scan</button>
+      <span class="count" id="statscount"></span>
+      <span style="flex:1"></span>
+      <label><input type="checkbox" id="showall"> show all scraped jobs</label>
+    </div>
+    <div class="bar"><div id="barfill"></div></div>
+    <div id="progress"></div>
+  </div>
+
+  <div class="card">
+    <table>
+      <thead><tr><th>Company</th><th>Job Title</th><th>Location</th><th>Email Date</th><th>Link</th></tr></thead>
+      <tbody id="rows"><tr><td colspan="5" style="color:var(--muted)">No results yet — connect Gmail and run a scan.</td></tr></tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+let pollTimer = null;
+
+async function refreshStatus() {
+  const s = await (await fetch('/api/status')).json();
+  const dot = document.getElementById('authdot');
+  const txt = document.getElementById('authtext');
+  const btn = document.getElementById('authbtn');
+  const scan = document.getElementById('scanbtn');
+  if (s.authenticated) {
+    dot.className = 'dot on'; txt.textContent = 'Gmail connected';
+    btn.textContent = 'Disconnect'; btn.href = '/disconnect'; scan.disabled = false;
+  } else {
+    dot.className = 'dot off';
+    txt.textContent = s.credentials_present ? 'Gmail not connected' : 'credentials.json missing — see README';
+    btn.textContent = 'Connect Gmail'; btn.href = '/auth'; scan.disabled = true;
+  }
+  document.getElementById('statscount').textContent =
+    `stored: ${s.stats.emails} emails / ${s.stats.jobs} jobs (${s.stats.qualifying} matching)`;
+}
+
+function fmtDate(ts) {
+  if (!ts) return '';
+  const d = new Date(ts * 1000);
+  return d.toLocaleDateString(undefined, {year:'numeric', month:'short', day:'numeric'});
+}
+
+async function refreshResults() {
+  const all = document.getElementById('showall').checked ? '?all=1' : '';
+  const r = await (await fetch('/api/results' + all)).json();
+  const tb = document.getElementById('rows');
+  if (!r.results.length) {
+    tb.innerHTML = '<tr><td colspan="5" style="color:var(--muted)">No matching jobs found yet.</td></tr>';
+    return;
+  }
+  tb.innerHTML = r.results.map(j => {
+    const loc = j.location_text || (j.in_usa ? 'USA' : '—');
+    const badge = j.no_h1b_tag ? ' <span class="tag">No H1B</span>' : '';
+    const flag = j.sponsors_h1b === 1 ? ' <span class="tag">sponsors H1B</span>' : '';
+    const err = j.error ? ` <span class="tag" title="${j.error}">scrape error</span>` : '';
+    return `<tr><td><b>${esc(j.company)}</b>${badge}${flag}${err}</td>
+      <td>${esc(j.title || '')}</td>
+      <td>${esc(loc)}</td>
+      <td>${fmtDate(j.email_date)}</td>
+      <td><a href="${j.url}" target="_blank" rel="noopener">apply ↗</a></td></tr>`;
+  }).join('');
+}
+
+function esc(s) {
+  return (s || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+async function poll() {
+  const s = await (await fetch('/api/scan_status')).json();
+  const p = document.getElementById('progress');
+  const bar = document.getElementById('barfill');
+  let msg = '', pct = 0;
+  if (s.stage === 'searching') msg = 'Searching Gmail…';
+  else if (s.stage === 'reading_email') { msg = `Reading emails: ${s.emails_done}/${s.emails_found}`; pct = s.emails_found ? 10 + 30*s.emails_done/s.emails_found : 10; }
+  else if (s.stage === 'scraping_jobs') { msg = `Scraping jobs: ${s.jobs_done}/${s.jobs_found} — ${s.current || ''}`; pct = s.jobs_found ? 40 + 60*s.jobs_done/s.jobs_found : 40; }
+  else if (s.stage === 'done') { msg = `Done. ${s.emails_done} email(s), ${s.jobs_done} job(s) scraped.`; pct = 100; }
+  else if (s.stage === 'error') { msg = 'Error: ' + (s.error || 'unknown'); pct = 100; }
+  p.textContent = msg;
+  bar.style.width = pct + '%';
+  if (s.running || s.stage === 'done' || s.stage === 'error') {
+    if (!s.running) { clearInterval(pollTimer); pollTimer = null; refreshResults(); refreshStatus(); }
+  }
+}
+
+document.getElementById('scanbtn').onclick = async () => {
+  const days = document.getElementById('days').value || 1;
+  const resp = await fetch('/api/scan', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({days: +days})});
+  if (resp.status === 401) { alert('Connect Gmail first.'); return; }
+  if (resp.status === 409) { alert('A scan is already running.'); return; }
+  if (pollTimer) clearInterval(pollTimer);
+  pollTimer = setInterval(poll, 800);
+  poll();
+};
+
+document.getElementById('showall').onchange = refreshResults;
+refreshStatus();
+refreshResults();
+</script>
+</body>
+</html>

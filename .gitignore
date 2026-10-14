@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+env/
+
+# Secrets & local state — never commit these
+credentials.json
+token.json
+*.db
+data/
