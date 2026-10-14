@@ -46,10 +46,17 @@ def get_service():
     return build("gmail", "v1", credentials=creds, cache_discovery=False)
 
 
-def search_message_ids(service, days):
-    """Message IDs from swelist in the last `days` days."""
-    after = int(time.time()) - days * 86400
-    query = f'from:{SENDER} after:{after} "{SUBJECT_CONTAINS}"'
+def search_message_ids(service, days, skip_recent_days=0):
+    """Message IDs from swelist in the last `days` days, optionally excluding the most recent window."""
+    now = int(time.time())
+    after = now - days * 86400
+    if skip_recent_days > 0:
+        before = now - skip_recent_days * 86400
+        if before <= after:
+            return []
+        query = f'from:{SENDER} after:{after} before:{before} "{SUBJECT_CONTAINS}"'
+    else:
+        query = f'from:{SENDER} after:{after} "{SUBJECT_CONTAINS}"'
     ids = []
     page_token = None
     while True:

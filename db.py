@@ -55,8 +55,49 @@ def init_db():
             );
 
             CREATE INDEX IF NOT EXISTS idx_jobs_qualifies ON jobs(qualifies);
+
+            CREATE TABLE IF NOT EXISTS app_meta (
+                key   TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            );
             """
         )
+        _migrate_jobs(db)
+
+
+def _migrate_jobs(db):
+    cols = {r[1] for r in db.execute("PRAGMA table_info(jobs)").fetchall()}
+    if "status" not in cols:
+        db.execute("ALTER TABLE jobs ADD COLUMN status TEXT NOT NULL DEFAULT 'active'")
+    if "applied_at" not in cols:
+        db.execute("ALTER TABLE jobs ADD COLUMN applied_at INTEGER")
+
+
+def _meta_get(key, default=""):
+    with get_db() as db:
+        row = db.execute("SELECT value FROM app_meta WHERE key = ?", (key,)).fetchone()
+        return row["value"] if row else default
+
+
+def _meta_set(key, value):
+    with get_db() as db:
+        db.execute(
+            "INSERT INTO app_meta (key, value) VALUES (?, ?) "
+            "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            (key, str(value)),
+        )
+
+
+def get_scan_coverage_days():
+    raw = _meta_get("scan_coverage_days", "0")
+    try:
+        return max(0, int(raw))
+    except ValueError:
+        return 0
+
+
+def set_scan_coverage_days(days):
+    _meta_set("scan_coverage_days", max(0, int(days)))
 
 
 def email_scanned(message_id):
@@ -102,18 +143,55 @@ def record_job(url, company, title, email_id, email_date, sponsors_h1b, no_h1b_t
         )
 
 
-def list_results(qualifying_only=True):
+def list_results(qualifying_only=True, job_status="active"):
     with get_db() as db:
+        clauses = []
+        if job_status == "active":
+            clauses.append("status = 'active'")
+        elif job_status == "applied":
+            clauses.append("status = 'applied'")
+        if qualifying_only and job_status != "applied":
+            clauses.append("qualifies = 1")
         q = "SELECT * FROM jobs"
-        if qualifying_only:
-            q += " WHERE qualifies = 1"
+        if clauses:
+            q += " WHERE " + " AND ".join(clauses)
         q += " ORDER BY email_date DESC, company"
         return [dict(r) for r in db.execute(q).fetchall()]
+
+
+def delete_job(url):
+    with get_db() as db:
+        db.execute("DELETE FROM jobs WHERE url = ?", (url,))
+
+
+def mark_job_applied(url):
+    with get_db() as db:
+        db.execute(
+            "UPDATE jobs SET status = 'applied', applied_at = ? WHERE url = ?",
+            (int(time.time()), url),
+        )
+
+
+def mark_job_active(url):
+    with get_db() as db:
+        db.execute(
+            "UPDATE jobs SET status = 'active', applied_at = NULL WHERE url = ?",
+            (url,),
+        )
 
 
 def stats():
     with get_db() as db:
         emails = db.execute("SELECT COUNT(*) c FROM emails").fetchone()["c"]
         jobs = db.execute("SELECT COUNT(*) c FROM jobs").fetchone()["c"]
-        qual = db.execute("SELECT COUNT(*) c FROM jobs WHERE qualifies = 1").fetchone()["c"]
-        return {"emails": emails, "jobs": jobs, "qualifying": qual}
+        qual = db.execute(
+            "SELECT COUNT(*) c FROM jobs WHERE qualifies = 1 AND status = 'active'"
+        ).fetchone()["c"]
+        applied = db.execute("SELECT COUNT(*) c FROM jobs WHERE status = 'applied'").fetchone()["c"]
+        return {
+            "emails": emails,
+            "jobs": jobs,
+            "qualifying": qual,
+            "applied": applied,
+            "scan_coverage_days": get_scan_coverage_days(),
+        }

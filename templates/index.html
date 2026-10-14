@@ -5,69 +5,331 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>SweList Job Scanner</title>
 <style>
-  :root { --bg:#0f1115; --card:#171b22; --line:#262c37; --fg:#e6e9ef; --muted:#9aa3b2; --accent:#4f8cff; --ok:#3fb96f; }
+  :root {
+    --bg: #0b1020;
+    --bg-2: #10172a;
+    --card: rgba(22, 30, 52, 0.86);
+    --card-solid: #161e34;
+    --line: rgba(255,255,255,0.08);
+    --line-strong: rgba(255,255,255,0.14);
+    --fg: #f4f7ff;
+    --muted: #9aa6c2;
+    --accent: #5b8cff;
+    --accent-2: #7aa2ff;
+    --ok: #3dcf8e;
+    --ok-bg: rgba(61, 207, 142, 0.12);
+    --warn: #f0b429;
+    --danger: #ff6b7a;
+    --danger-bg: rgba(255, 107, 122, 0.12);
+    --shadow: 0 18px 50px rgba(3, 8, 24, 0.45);
+    --radius: 18px;
+  }
   * { box-sizing: border-box; }
-  body { margin:0; font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; background:var(--bg); color:var(--fg); }
-  .wrap { max-width: 1080px; margin: 0 auto; padding: 28px 20px 60px; }
-  h1 { font-size: 22px; margin: 0 0 4px; }
-  .sub { color: var(--muted); font-size: 13px; margin-bottom: 22px; }
-  .card { background: var(--card); border:1px solid var(--line); border-radius: 12px; padding: 16px 18px; margin-bottom: 16px; }
-  .row { display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
-  .dot { width:9px; height:9px; border-radius:50%; background:var(--muted); display:inline-block; }
-  .dot.on { background: var(--ok); }
-  .dot.off { background:#d65a5a; }
-  button, .btn { background: var(--accent); color:#fff; border:0; border-radius:8px; padding:9px 16px; font-size:14px; cursor:pointer; text-decoration:none; }
-  button[disabled] { opacity:.5; cursor:default; }
-  .btn.ghost { background:transparent; border:1px solid var(--line); color:var(--fg); }
-  input[type=number] { width:64px; background:#0d1016; border:1px solid var(--line); color:var(--fg); border-radius:8px; padding:8px 10px; font-size:14px; }
-  label { font-size:14px; color:var(--muted); }
-  #progress { font-size:13px; color:var(--muted); margin-top:10px; min-height:18px; }
-  .bar { height:6px; background:#0d1016; border-radius:4px; overflow:hidden; margin-top:8px; }
-  .bar > div { height:100%; width:0%; background:var(--accent); transition:width .3s; }
-  table { width:100%; border-collapse: collapse; font-size: 14px; }
-  th, td { text-align:left; padding:10px 8px; border-bottom:1px solid var(--line); vertical-align:top; }
-  th { color:var(--muted); font-weight:600; font-size:12px; text-transform:uppercase; letter-spacing:.04em; }
-  td a { color: var(--accent); }
-  .count { font-size:13px; color:var(--muted); }
-  .tag { display:inline-block; font-size:11px; border:1px solid var(--line); border-radius:20px; padding:2px 8px; color:var(--muted); }
+  html, body { min-height: 100%; }
+  body {
+    margin: 0;
+    color: var(--fg);
+    font-family: "Segoe UI", ui-sans-serif, system-ui, -apple-system, sans-serif;
+    background:
+      radial-gradient(900px 500px at 8% -10%, rgba(91,140,255,.22), transparent 55%),
+      radial-gradient(700px 420px at 100% 0%, rgba(61,207,142,.08), transparent 45%),
+      linear-gradient(180deg, var(--bg), #080c18 70%);
+  }
+  button, input, a { font: inherit; }
+  button, .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    border: 0;
+    border-radius: 12px;
+    padding: 10px 16px;
+    color: #fff;
+    background: var(--accent);
+    box-shadow: 0 8px 20px rgba(91,140,255,.22);
+    cursor: pointer;
+    text-decoration: none;
+    white-space: nowrap;
+    transition: transform .15s ease, background .15s ease, opacity .15s ease, box-shadow .15s ease;
+  }
+  button:hover, .btn:hover { background: var(--accent-2); transform: translateY(-1px); }
+  button:active, .btn:active { transform: translateY(0); }
+  button:focus-visible, .btn:focus-visible, input:focus-visible {
+    outline: 2px solid #c5d6ff;
+    outline-offset: 2px;
+  }
+  button[disabled], .btn[disabled] {
+    opacity: .45;
+    cursor: not-allowed;
+    transform: none;
+    box-shadow: none;
+  }
+  .btn.ghost, button.ghost {
+    background: transparent;
+    color: var(--fg);
+    border: 1px solid var(--line-strong);
+    box-shadow: none;
+  }
+  .btn.ghost:hover, button.ghost:hover { background: rgba(255,255,255,.05); }
+  button.ok {
+    background: #1f8a58;
+    box-shadow: 0 8px 18px rgba(31,138,88,.22);
+  }
+  button.ok:hover { background: #23a066; }
+  button.danger {
+    background: transparent;
+    color: #ffb4bb;
+    border: 1px solid rgba(255,107,122,.35);
+    box-shadow: none;
+  }
+  button.danger:hover { background: var(--danger-bg); }
+  button.sm { padding: 8px 12px; font-size: 13px; border-radius: 10px; box-shadow: none; }
+  .wrap { width: min(1180px, calc(100% - 32px)); margin: 0 auto; padding: 28px 0 80px; }
+  header {
+    display: flex;
+    justify-content: space-between;
+    gap: 20px;
+    align-items: flex-start;
+    margin-bottom: 22px;
+  }
+  .brand { display: flex; gap: 14px; align-items: flex-start; }
+  .logo {
+    width: 46px; height: 46px; border-radius: 14px;
+    display: grid; place-items: center;
+    background: linear-gradient(180deg, #6d98ff, #3d68e8);
+    box-shadow: 0 10px 24px rgba(91,140,255,.3);
+    font-weight: 800;
+  }
+  h1 { margin: 0; font-size: 28px; letter-spacing: -.03em; }
+  .sub { margin: 6px 0 0; color: var(--muted); line-height: 1.5; max-width: 620px; }
+  .auth-box {
+    display: flex; align-items: center; gap: 12px;
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    padding: 8px 8px 8px 14px;
+    backdrop-filter: blur(16px);
+  }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: #6d7690; box-shadow: 0 0 0 4px rgba(255,255,255,.04); }
+  .dot.on { background: var(--ok); box-shadow: 0 0 0 4px rgba(61,207,142,.14); }
+  .dot.off { background: var(--danger); box-shadow: 0 0 0 4px rgba(255,107,122,.14); }
+  #authtext { font-size: 14px; color: var(--muted); }
+  .grid { display: grid; grid-template-columns: 1.4fr .8fr; gap: 16px; margin-bottom: 16px; }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 20px;
+    box-shadow: var(--shadow);
+    backdrop-filter: blur(18px);
+  }
+  .card h2 { margin: 0 0 4px; font-size: 18px; }
+  .hint { color: var(--muted); font-size: 13px; line-height: 1.45; }
+  .scan-row { display: flex; flex-direction: column; gap: 14px; margin: 16px 0 12px; }
+  .scan-actions { display: flex; gap: 12px; align-items: end; flex-wrap: wrap; }
+  .field label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 6px; text-transform: uppercase; letter-spacing: .04em; }
+  .stepper {
+    display: flex; align-items: center;
+    background: #0d1426;
+    border: 1px solid var(--line-strong);
+    border-radius: 14px;
+    overflow: hidden;
+  }
+  .stepper button {
+    width: 42px; height: 44px; border-radius: 0; box-shadow: none;
+    background: transparent; color: var(--fg);
+  }
+  .stepper button:hover { background: rgba(255,255,255,.05); transform: none; }
+  .stepper input {
+    width: 64px; height: 44px; border: 0; background: transparent;
+    color: var(--fg); text-align: center; font-size: 18px; font-weight: 700;
+  }
+  .presets { display: flex; gap: 8px; flex-wrap: wrap; }
+  .chip {
+    border: 1px solid var(--line-strong);
+    background: transparent;
+    color: var(--muted);
+    box-shadow: none;
+    padding: 8px 12px;
+    border-radius: 999px;
+  }
+  .chip.active, .chip:hover { color: var(--fg); border-color: rgba(91,140,255,.5); background: rgba(91,140,255,.12); transform: none; }
+  .scan-meta { display: flex; justify-content: space-between; gap: 12px; align-items: center; margin-top: 14px; }
+  .bar { height: 8px; background: #0d1426; border-radius: 99px; overflow: hidden; }
+  .bar > div { height: 100%; width: 0; background: linear-gradient(90deg, #4f7fff, #7ee0b2); transition: width .3s ease; }
+  #progress { min-height: 20px; color: var(--muted); font-size: 13px; }
+  .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .stat {
+    background: #10182c;
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 14px;
+  }
+  .stat b { display: block; font-size: 26px; letter-spacing: -.04em; }
+  .stat span { color: var(--muted); font-size: 12px; }
+  .toolbar { display: flex; justify-content: space-between; gap: 12px; align-items: center; flex-wrap: wrap; margin-bottom: 16px; }
+  .tabs {
+    display: flex; gap: 6px; padding: 5px;
+    background: #10182c; border: 1px solid var(--line); border-radius: 14px;
+  }
+  .tabs button {
+    background: transparent; color: var(--muted); box-shadow: none;
+    border-radius: 10px; padding: 8px 14px;
+  }
+  .tabs button.active { background: var(--accent); color: #fff; }
+  .tabs button:hover { transform: none; }
+  .search {
+    min-width: 240px; flex: 1;
+    background: #10182c; border: 1px solid var(--line); color: var(--fg);
+    border-radius: 12px; padding: 10px 12px;
+  }
+  .toggle { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 13px; }
+  .toggle input { accent-color: var(--accent); }
+  .jobs { display: grid; gap: 10px; }
+  .job {
+    display: grid;
+    grid-template-columns: minmax(0, 1.5fr) minmax(160px, .9fr) auto;
+    gap: 16px;
+    align-items: center;
+    padding: 16px 18px;
+    border: 1px solid var(--line);
+    background: #121a2f;
+    border-radius: 16px;
+  }
+  .job:hover { border-color: rgba(91,140,255,.28); background: #152038; }
+  .company { font-weight: 700; font-size: 16px; }
+  .title { color: var(--muted); margin-top: 4px; line-height: 1.4; }
+  .meta { color: var(--muted); font-size: 13px; display: flex; flex-direction: column; gap: 6px; }
+  .tags { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+  .tag {
+    display: inline-flex; align-items: center;
+    font-size: 11px; color: var(--muted);
+    border: 1px solid var(--line-strong); border-radius: 999px; padding: 3px 8px;
+  }
+  .tag.ok { color: #8be8b8; background: var(--ok-bg); border-color: rgba(61,207,142,.2); }
+  .tag.warn { color: #ffd27a; background: rgba(240,180,41,.1); }
+  .tag.err { color: #ffb4bb; background: var(--danger-bg); }
+  .actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+  .empty {
+    text-align: center; padding: 48px 16px; color: var(--muted);
+    border: 1px dashed var(--line-strong); border-radius: 16px;
+  }
+  .empty h3 { margin: 0 0 6px; color: var(--fg); }
+  .toast {
+    position: fixed; right: 18px; bottom: 18px; z-index: 20;
+    background: #18233f; border: 1px solid var(--line-strong);
+    color: var(--fg); padding: 12px 14px; border-radius: 12px;
+    box-shadow: var(--shadow); display: none; max-width: 320px;
+  }
+  .toast.show { display: block; }
+  .toast.error { border-color: rgba(255,107,122,.4); }
+  @media (max-width: 860px) {
+    header, .grid, .job { grid-template-columns: 1fr; display: grid; }
+    header { display: flex; flex-direction: column; }
+    .auth-box { width: 100%; justify-content: space-between; }
+    .scan-actions, .actions { justify-content: stretch; }
+    #scanbtn, .stepper, .search { width: 100%; }
+    .stepper input { flex: 1; width: auto; }
+    .actions { justify-content: flex-start; }
+  }
 </style>
 </head>
 <body>
 <div class="wrap">
-  <h1>SweList Job Scanner</h1>
-  <div class="sub">Scans <b>noreply@swelist.com</b> "New Jobs Posted Today" emails, opens each Simplify link, and keeps jobs that <b>don't</b> say "No H1B Sponsorship" and are located in the USA.</div>
-
-  <div class="card row" id="authcard">
-    <span class="dot" id="authdot"></span>
-    <span id="authtext">Checking Gmail connection…</span>
-    <span style="flex:1"></span>
-    <a class="btn ghost" id="authbtn" href="/auth">Connect Gmail</a>
-  </div>
-
-  <div class="card">
-    <div class="row">
-      <label for="days">Scan emails from the last</label>
-      <input type="number" id="days" value="1" min="1" max="60">
-      <label>day(s)</label>
-      <button id="scanbtn" disabled>Scan</button>
-      <span class="count" id="statscount"></span>
-      <span style="flex:1"></span>
-      <label><input type="checkbox" id="showall"> show all scraped jobs</label>
+  <header>
+    <div class="brand">
+      <div class="logo">SL</div>
+      <div>
+        <h1>SweList Job Scanner</h1>
+        <p class="sub">Pulls “New Jobs Posted Today” emails from <b>noreply@swelist.com</b>, scrapes each Simplify posting, and keeps USA roles that do not say “No H1B Sponsorship”.</p>
+      </div>
     </div>
-    <div class="bar"><div id="barfill"></div></div>
-    <div id="progress"></div>
+    <div class="auth-box">
+      <span class="dot" id="authdot"></span>
+      <span id="authtext">Checking Gmail…</span>
+      <a class="btn ghost" id="authbtn" href="/auth">Connect Gmail</a>
+    </div>
+  </header>
+
+  <div class="grid">
+    <section class="card">
+      <h2>Scan inbox</h2>
+      <p class="hint" id="coveragehint">Choose how far back to look. Days you already scanned are skipped automatically.</p>
+      <div class="scan-row">
+        <div class="scan-actions">
+          <div class="field">
+            <label for="days">Days back</label>
+            <div class="stepper">
+              <button type="button" id="daysminus" aria-label="Fewer days">−</button>
+              <input type="number" id="days" value="1" min="1" max="60">
+              <button type="button" id="daysplus" aria-label="More days">+</button>
+            </div>
+          </div>
+          <button id="scanbtn" disabled>Start scan</button>
+        </div>
+        <div class="field">
+          <label>Quick range</label>
+          <div class="presets">
+            <button type="button" class="chip active" data-days="1">Today</button>
+            <button type="button" class="chip" data-days="3">3 days</button>
+            <button type="button" class="chip" data-days="7">7 days</button>
+            <button type="button" class="chip" data-days="14">14 days</button>
+            <button type="button" class="chip" data-days="30">30 days</button>
+          </div>
+        </div>
+      </div>
+      <div class="bar"><div id="barfill"></div></div>
+      <div class="scan-meta">
+        <div id="progress">Ready when Gmail is connected.</div>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Overview</h2>
+      <p class="hint">A snapshot of what is stored locally after scans.</p>
+      <div class="stats" style="margin-top:16px">
+        <div class="stat"><b id="statEmails">0</b><span>Emails scanned</span></div>
+        <div class="stat"><b id="statJobs">0</b><span>Jobs stored</span></div>
+        <div class="stat"><b id="statOpen">0</b><span>Open matches</span></div>
+        <div class="stat"><b id="statApplied">0</b><span>Marked applied</span></div>
+      </div>
+    </section>
   </div>
 
-  <div class="card">
-    <table>
-      <thead><tr><th>Company</th><th>Job Title</th><th>Location</th><th>Email Date</th><th>Link</th></tr></thead>
-      <tbody id="rows"><tr><td colspan="5" style="color:var(--muted)">No results yet — connect Gmail and run a scan.</td></tr></tbody>
-    </table>
-  </div>
+  <section class="card">
+    <div class="toolbar">
+      <div class="tabs">
+        <button type="button" id="tabactive" class="active">Open jobs <span id="tabOpenCount"></span></button>
+        <button type="button" id="tabapplied">Applied <span id="tabAppliedCount"></span></button>
+      </div>
+      <input class="search" id="search" type="search" placeholder="Search company, title, or location">
+      <label class="toggle" id="showallwrap"><input type="checkbox" id="showall"> Show all scraped jobs</label>
+    </div>
+    <div class="jobs" id="rows"></div>
+  </section>
 </div>
+<div class="toast" id="toast"></div>
 
 <script>
 let pollTimer = null;
+let currentView = 'active';
+let lastResults = [];
+
+function toast(msg, kind) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = 'toast show' + (kind === 'error' ? ' error' : '');
+  clearTimeout(toast._t);
+  toast._t = setTimeout(() => el.classList.remove('show'), 2800);
+}
+
+function setDays(value) {
+  const days = Math.max(1, Math.min(60, Number(value) || 1));
+  document.getElementById('days').value = days;
+  document.querySelectorAll('.chip[data-days]').forEach(chip => {
+    chip.classList.toggle('active', Number(chip.dataset.days) === days);
+  });
+}
 
 async function refreshStatus() {
   const s = await (await fetch('/api/status')).json();
@@ -76,76 +338,181 @@ async function refreshStatus() {
   const btn = document.getElementById('authbtn');
   const scan = document.getElementById('scanbtn');
   if (s.authenticated) {
-    dot.className = 'dot on'; txt.textContent = 'Gmail connected';
-    btn.textContent = 'Disconnect'; btn.href = '/disconnect'; scan.disabled = false;
+    dot.className = 'dot on';
+    txt.textContent = 'Gmail connected';
+    btn.textContent = 'Disconnect';
+    btn.href = '/disconnect';
+    scan.disabled = false;
+    if (!document.getElementById('progress').dataset.locked) {
+      document.getElementById('progress').textContent = 'Ready to scan new emails.';
+    }
   } else {
     dot.className = 'dot off';
-    txt.textContent = s.credentials_present ? 'Gmail not connected' : 'credentials.json missing — see README';
-    btn.textContent = 'Connect Gmail'; btn.href = '/auth'; scan.disabled = true;
+    txt.textContent = s.credentials_present ? 'Gmail not connected' : 'credentials.json missing';
+    btn.textContent = 'Connect Gmail';
+    btn.href = '/auth';
+    scan.disabled = true;
+    document.getElementById('progress').textContent = s.credentials_present
+      ? 'Connect Gmail to start scanning.'
+      : 'Add credentials.json, then connect Gmail.';
   }
-  document.getElementById('statscount').textContent =
-    `stored: ${s.stats.emails} emails / ${s.stats.jobs} jobs (${s.stats.qualifying} matching)`;
+  const cov = s.stats.scan_coverage_days || 0;
+  document.getElementById('coveragehint').textContent = cov
+    ? `Already scanned the last ${cov} day${cov === 1 ? '' : 's'}. A longer range only fetches older mail.`
+    : 'Choose how far back to look. Days you already scanned are skipped automatically.';
+  document.getElementById('statEmails').textContent = s.stats.emails;
+  document.getElementById('statJobs').textContent = s.stats.jobs;
+  document.getElementById('statOpen').textContent = s.stats.qualifying;
+  document.getElementById('statApplied').textContent = s.stats.applied;
+  document.getElementById('tabOpenCount').textContent = s.stats.qualifying ? `(${s.stats.qualifying})` : '';
+  document.getElementById('tabAppliedCount').textContent = s.stats.applied ? `(${s.stats.applied})` : '';
 }
 
 function fmtDate(ts) {
-  if (!ts) return '';
-  const d = new Date(ts * 1000);
-  return d.toLocaleDateString(undefined, {year:'numeric', month:'short', day:'numeric'});
+  if (!ts) return '—';
+  return new Date(ts * 1000).toLocaleDateString(undefined, {year:'numeric', month:'short', day:'numeric'});
+}
+
+function setView(view) {
+  currentView = view;
+  document.getElementById('tabactive').classList.toggle('active', view === 'active');
+  document.getElementById('tabapplied').classList.toggle('active', view === 'applied');
+  document.getElementById('showallwrap').style.display = view === 'active' ? '' : 'none';
+  document.getElementById('search').value = '';
+  refreshResults();
+}
+
+async function jobAction(url, action) {
+  if (action === 'deleted' && !confirm('Remove this job from your list?')) return;
+  const resp = await fetch('/api/jobs/action', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({url, action}),
+  });
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({}));
+    toast(err.error || 'Action failed', 'error');
+    return;
+  }
+  const msg = action === 'applied' ? 'Moved to Applied.'
+    : action === 'active' ? 'Moved back to Open jobs.'
+    : 'Job removed.';
+  toast(msg);
+  refreshResults();
+  refreshStatus();
+}
+
+function renderJobs(results) {
+  const q = document.getElementById('search').value.trim().toLowerCase();
+  const filtered = results.filter(j => {
+    if (!q) return true;
+    return [j.company, j.title, j.location_text].join(' ').toLowerCase().includes(q);
+  });
+  const box = document.getElementById('rows');
+  if (!results.length) {
+    box.innerHTML = currentView === 'applied'
+      ? '<div class="empty"><h3>No applied jobs yet</h3><p>Mark a role as applied and it will show up here.</p></div>'
+      : '<div class="empty"><h3>No matching jobs yet</h3><p>Connect Gmail and run a scan to fill this list.</p></div>';
+    return;
+  }
+  if (!filtered.length) {
+    box.innerHTML = '<div class="empty"><h3>No jobs match that search</h3><p>Try a company name, title, or city.</p></div>';
+    return;
+  }
+  box.innerHTML = filtered.map(j => {
+    const loc = j.location_text || (j.in_usa ? 'USA' : 'Location unknown');
+    const tags = [
+      j.no_h1b_tag ? '<span class="tag warn">No H1B</span>' : '',
+      j.sponsors_h1b === 1 ? '<span class="tag ok">Sponsors H1B</span>' : '',
+      j.error ? `<span class="tag err" title="${esc(j.error)}">Scrape error</span>` : '',
+    ].join('');
+    const dateLabel = currentView === 'applied' ? 'Applied' : 'From email';
+    const dateVal = currentView === 'applied' ? fmtDate(j.applied_at) : fmtDate(j.email_date);
+    const extra = currentView === 'active'
+      ? `<button type="button" class="sm ok" data-url="${escAttr(j.url)}" data-action="applied">Mark applied</button>`
+      : `<button type="button" class="sm ghost" data-url="${escAttr(j.url)}" data-action="active">Back to open</button>`;
+    return `<article class="job">
+      <div>
+        <div class="company">${esc(j.company)}</div>
+        <div class="title">${esc(j.title || 'Untitled role')}</div>
+        <div class="tags">${tags}</div>
+      </div>
+      <div class="meta">
+        <span>${esc(loc)}</span>
+        <span>${dateLabel}: ${dateVal}</span>
+      </div>
+      <div class="actions">
+        <a class="btn ghost sm" href="${escAttr(j.url)}" target="_blank" rel="noopener">Open posting</a>
+        ${extra}
+        <button type="button" class="sm danger" data-url="${escAttr(j.url)}" data-action="deleted">Delete</button>
+      </div>
+    </article>`;
+  }).join('');
+  box.querySelectorAll('button[data-action]').forEach(btn => {
+    btn.onclick = () => jobAction(btn.dataset.url, btn.dataset.action);
+  });
 }
 
 async function refreshResults() {
-  const all = document.getElementById('showall').checked ? '?all=1' : '';
-  const r = await (await fetch('/api/results' + all)).json();
-  const tb = document.getElementById('rows');
-  if (!r.results.length) {
-    tb.innerHTML = '<tr><td colspan="5" style="color:var(--muted)">No matching jobs found yet.</td></tr>';
-    return;
-  }
-  tb.innerHTML = r.results.map(j => {
-    const loc = j.location_text || (j.in_usa ? 'USA' : '—');
-    const badge = j.no_h1b_tag ? ' <span class="tag">No H1B</span>' : '';
-    const flag = j.sponsors_h1b === 1 ? ' <span class="tag">sponsors H1B</span>' : '';
-    const err = j.error ? ` <span class="tag" title="${j.error}">scrape error</span>` : '';
-    return `<tr><td><b>${esc(j.company)}</b>${badge}${flag}${err}</td>
-      <td>${esc(j.title || '')}</td>
-      <td>${esc(loc)}</td>
-      <td>${fmtDate(j.email_date)}</td>
-      <td><a href="${j.url}" target="_blank" rel="noopener">apply ↗</a></td></tr>`;
-  }).join('');
+  const params = new URLSearchParams({view: currentView});
+  if (currentView === 'active' && document.getElementById('showall').checked) params.set('all', '1');
+  const r = await (await fetch('/api/results?' + params)).json();
+  lastResults = r.results || [];
+  renderJobs(lastResults);
 }
 
 function esc(s) {
   return (s || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
+function escAttr(s) { return esc(s); }
 
 async function poll() {
   const s = await (await fetch('/api/scan_status')).json();
   const p = document.getElementById('progress');
   const bar = document.getElementById('barfill');
   let msg = '', pct = 0;
+  p.dataset.locked = s.running ? '1' : '';
   if (s.stage === 'searching') msg = 'Searching Gmail…';
-  else if (s.stage === 'reading_email') { msg = `Reading emails: ${s.emails_done}/${s.emails_found}`; pct = s.emails_found ? 10 + 30*s.emails_done/s.emails_found : 10; }
-  else if (s.stage === 'scraping_jobs') { msg = `Scraping jobs: ${s.jobs_done}/${s.jobs_found} — ${s.current || ''}`; pct = s.jobs_found ? 40 + 60*s.jobs_done/s.jobs_found : 40; }
-  else if (s.stage === 'done') { msg = `Done. ${s.emails_done} email(s), ${s.jobs_done} job(s) scraped.`; pct = 100; }
-  else if (s.stage === 'error') { msg = 'Error: ' + (s.error || 'unknown'); pct = 100; }
+  else if (s.stage === 'reading_email') { msg = `Reading emails ${s.emails_done}/${s.emails_found}`; pct = s.emails_found ? 10 + 30*s.emails_done/s.emails_found : 10; }
+  else if (s.stage === 'scraping_jobs') { msg = `Scraping jobs ${s.jobs_done}/${s.jobs_found}${s.current ? ` — ${s.current}` : ''}`; pct = s.jobs_found ? 40 + 60*s.jobs_done/s.jobs_found : 40; }
+  else if (s.stage === 'done') { msg = `Scan finished. ${s.emails_done} email(s), ${s.jobs_done} job(s) scraped.`; pct = 100; }
+  else if (s.stage === 'error') { msg = 'Scan failed: ' + (s.error || 'unknown'); pct = 100; }
+  if (s.range_note) msg = (msg ? msg + ' ' : '') + s.range_note;
   p.textContent = msg;
   bar.style.width = pct + '%';
+  document.getElementById('scanbtn').disabled = !!s.running;
+  document.getElementById('scanbtn').textContent = s.running ? 'Scanning…' : 'Start scan';
   if (s.running || s.stage === 'done' || s.stage === 'error') {
-    if (!s.running) { clearInterval(pollTimer); pollTimer = null; refreshResults(); refreshStatus(); }
+    if (!s.running) {
+      clearInterval(pollTimer);
+      pollTimer = null;
+      refreshResults();
+      refreshStatus();
+      toast(s.stage === 'error' ? 'Scan failed.' : 'Scan complete.', s.stage === 'error' ? 'error' : 'ok');
+    }
   }
 }
 
 document.getElementById('scanbtn').onclick = async () => {
   const days = document.getElementById('days').value || 1;
   const resp = await fetch('/api/scan', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({days: +days})});
-  if (resp.status === 401) { alert('Connect Gmail first.'); return; }
-  if (resp.status === 409) { alert('A scan is already running.'); return; }
+  if (resp.status === 401) { toast('Connect Gmail first.', 'error'); return; }
+  if (resp.status === 409) { toast('A scan is already running.', 'error'); return; }
   if (pollTimer) clearInterval(pollTimer);
   pollTimer = setInterval(poll, 800);
   poll();
 };
 
+document.getElementById('days').onchange = () => setDays(document.getElementById('days').value);
+document.getElementById('daysminus').onclick = () => setDays(Number(document.getElementById('days').value) - 1);
+document.getElementById('daysplus').onclick = () => setDays(Number(document.getElementById('days').value) + 1);
+document.querySelectorAll('.chip[data-days]').forEach(chip => {
+  chip.onclick = () => setDays(chip.dataset.days);
+});
 document.getElementById('showall').onchange = refreshResults;
+document.getElementById('search').oninput = () => renderJobs(lastResults);
+document.getElementById('tabactive').onclick = () => setView('active');
+document.getElementById('tabapplied').onclick = () => setView('applied');
 refreshStatus();
 refreshResults();
 </script>

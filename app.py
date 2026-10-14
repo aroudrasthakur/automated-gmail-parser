@@ -16,6 +16,7 @@ log = logging.getLogger(__name__)
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("FLASK_SECRET_KEY", "dev-secret-change-me")
+app.config["TEMPLATES_AUTO_RELOAD"] = True
 
 # Scan worker state (single-user local app)
 _scan_lock = threading.Lock()
@@ -33,7 +34,7 @@ _scan = {
 
 def _reset_scan():
     _scan.update(
-        running=True, error=None, stage="searching",
+        running=True, error=None, stage="searching", range_note="",
         emails_found=0, emails_done=0, jobs_found=0, jobs_done=0, current="",
     )
 
@@ -41,8 +42,22 @@ def _reset_scan():
 def run_scan(days):
     _reset_scan()
     try:
+        coverage = db.get_scan_coverage_days()
+        skip_recent = min(coverage, days)
+        if coverage > 0 and days > coverage:
+            _scan["range_note"] = (
+                f"Scanning days {coverage + 1}–{days} "
+                f"({coverage} most recent day(s) already covered)"
+            )
+        elif days <= coverage:
+            _scan["range_note"] = (
+                f"Last {days} day(s) already covered; only checking older mail if the window extends further"
+            )
+        else:
+            _scan["range_note"] = ""
+
         service = gmail_client.get_service()
-        ids = gmail_client.search_message_ids(service, days)
+        ids = gmail_client.search_message_ids(service, days, skip_recent_days=skip_recent)
         _scan["emails_found"] = len(ids)
         todo = [mid for mid in ids if not db.email_scanned(mid)]
         log.info("scan: %d emails matched, %d new", len(ids), len(todo))
@@ -89,6 +104,7 @@ def run_scan(days):
             _scan["emails_done"] += 1
 
         _scan["stage"] = "done"
+        db.set_scan_coverage_days(max(coverage, days))
     except Exception as e:  # noqa: BLE001 - surface anything to the UI
         log.exception("scan failed")
         _scan["error"] = str(e)
@@ -180,8 +196,35 @@ def api_scan_status():
 
 @app.get("/api/results")
 def api_results():
+    view = request.args.get("view", "active")
+    if view not in ("active", "applied"):
+        view = "active"
     qualifying_only = request.args.get("all") != "1"
-    return jsonify({"results": db.list_results(qualifying_only), "stats": db.stats()})
+    return jsonify(
+        {
+            "results": db.list_results(qualifying_only, job_status=view),
+            "stats": db.stats(),
+            "view": view,
+        }
+    )
+
+
+@app.post("/api/jobs/action")
+def api_job_action():
+    body = request.get_json(silent=True) or {}
+    url = (body.get("url") or "").strip()
+    action = (body.get("action") or "").strip().lower()
+    if not url:
+        return jsonify({"error": "url required"}), 400
+    if action == "deleted":
+        db.delete_job(url)
+    elif action == "applied":
+        db.mark_job_applied(url)
+    elif action == "active":
+        db.mark_job_active(url)
+    else:
+        return jsonify({"error": "action must be deleted, applied, or active"}), 400
+    return jsonify({"ok": True, "action": action, "url": url})
 
 
 if __name__ == "__main__":
