@@ -71,6 +71,8 @@ def _migrate_jobs(db):
         db.execute("ALTER TABLE jobs ADD COLUMN status TEXT NOT NULL DEFAULT 'active'")
     if "applied_at" not in cols:
         db.execute("ALTER TABLE jobs ADD COLUMN applied_at INTEGER")
+    if "starred" not in cols:
+        db.execute("ALTER TABLE jobs ADD COLUMN starred INTEGER NOT NULL DEFAULT 0")
 
 
 def _meta_get(key, default=""):
@@ -150,12 +152,18 @@ def list_results(qualifying_only=True, job_status="active"):
             clauses.append("status = 'active'")
         elif job_status == "applied":
             clauses.append("status = 'applied'")
+        elif job_status == "starred":
+            clauses.append("status = 'active'")
+            clauses.append("starred = 1")
         if qualifying_only and job_status != "applied":
             clauses.append("qualifies = 1")
         q = "SELECT * FROM jobs"
         if clauses:
             q += " WHERE " + " AND ".join(clauses)
-        q += " ORDER BY email_date DESC, company"
+        if job_status == "active":
+            q += " ORDER BY starred DESC, email_date DESC, company"
+        else:
+            q += " ORDER BY email_date DESC, company"
         return [dict(r) for r in db.execute(q).fetchall()]
 
 
@@ -167,9 +175,18 @@ def delete_job(url):
 def mark_job_applied(url):
     with get_db() as db:
         db.execute(
-            "UPDATE jobs SET status = 'applied', applied_at = ? WHERE url = ?",
+            "UPDATE jobs SET status = 'applied', applied_at = ?, starred = 0 WHERE url = ?",
             (int(time.time()), url),
         )
+
+
+def set_job_starred(url, starred):
+    with get_db() as db:
+        cur = db.execute(
+            "UPDATE jobs SET starred = ? WHERE url = ? AND status = 'active'",
+            (1 if starred else 0, url),
+        )
+        return cur.rowcount > 0
 
 
 def mark_job_active(url):
@@ -188,10 +205,14 @@ def stats():
             "SELECT COUNT(*) c FROM jobs WHERE qualifies = 1 AND status = 'active'"
         ).fetchone()["c"]
         applied = db.execute("SELECT COUNT(*) c FROM jobs WHERE status = 'applied'").fetchone()["c"]
+        starred = db.execute(
+            "SELECT COUNT(*) c FROM jobs WHERE status = 'active' AND starred = 1 AND qualifies = 1"
+        ).fetchone()["c"]
         return {
             "emails": emails,
             "jobs": jobs,
             "qualifying": qual,
             "applied": applied,
+            "starred": starred,
             "scan_coverage_days": get_scan_coverage_days(),
         }

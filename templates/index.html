@@ -210,6 +210,17 @@
   .tag.warn { color: #ffd27a; background: rgba(240,180,41,.1); }
   .tag.err { color: #ffb4bb; background: var(--danger-bg); }
   .actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+  button.star-btn {
+    background: transparent;
+    border: 1px solid var(--line-strong);
+    box-shadow: none;
+    color: var(--muted);
+    min-width: 38px;
+    padding: 8px 10px;
+  }
+  button.star-btn.on { color: #ffd76a; border-color: rgba(255,215,106,.35); background: rgba(255,215,106,.08); }
+  button.star-btn:hover { transform: none; background: rgba(255,255,255,.05); }
+  .job-head { display: flex; align-items: flex-start; gap: 10px; }
   .empty {
     text-align: center; padding: 48px 16px; color: var(--muted);
     border: 1px dashed var(--line-strong); border-radius: 16px;
@@ -300,6 +311,7 @@
     <div class="toolbar">
       <div class="tabs">
         <button type="button" id="tabactive" class="active">Open jobs <span id="tabOpenCount"></span></button>
+        <button type="button" id="tabstarred">Starred <span id="tabStarredCount"></span></button>
         <button type="button" id="tabapplied">Applied <span id="tabAppliedCount"></span></button>
       </div>
       <input class="search" id="search" type="search" placeholder="Search company, title, or location">
@@ -366,6 +378,7 @@ async function refreshStatus() {
   document.getElementById('statApplied').textContent = s.stats.applied;
   document.getElementById('tabOpenCount').textContent = s.stats.qualifying ? `(${s.stats.qualifying})` : '';
   document.getElementById('tabAppliedCount').textContent = s.stats.applied ? `(${s.stats.applied})` : '';
+  document.getElementById('tabStarredCount').textContent = s.stats.starred ? `(${s.stats.starred})` : '';
 }
 
 function fmtDate(ts) {
@@ -376,6 +389,7 @@ function fmtDate(ts) {
 function setView(view) {
   currentView = view;
   document.getElementById('tabactive').classList.toggle('active', view === 'active');
+  document.getElementById('tabstarred').classList.toggle('active', view === 'starred');
   document.getElementById('tabapplied').classList.toggle('active', view === 'applied');
   document.getElementById('showallwrap').style.display = view === 'active' ? '' : 'none';
   document.getElementById('search').value = '';
@@ -396,6 +410,8 @@ async function jobAction(url, action) {
   }
   const msg = action === 'applied' ? 'Moved to Applied.'
     : action === 'active' ? 'Moved back to Open jobs.'
+    : action === 'star' ? 'Starred.'
+    : action === 'unstar' ? 'Removed from starred.'
     : 'Job removed.';
   toast(msg);
   refreshResults();
@@ -410,9 +426,12 @@ function renderJobs(results) {
   });
   const box = document.getElementById('rows');
   if (!results.length) {
-    box.innerHTML = currentView === 'applied'
+    const empty = currentView === 'applied'
       ? '<div class="empty"><h3>No applied jobs yet</h3><p>Mark a role as applied and it will show up here.</p></div>'
+      : currentView === 'starred'
+      ? '<div class="empty"><h3>No starred jobs yet</h3><p>Star roles from Open jobs to keep them at the top and in this list.</p></div>'
       : '<div class="empty"><h3>No matching jobs yet</h3><p>Connect Gmail and run a scan to fill this list.</p></div>';
+    box.innerHTML = empty;
     return;
   }
   if (!filtered.length) {
@@ -428,14 +447,23 @@ function renderJobs(results) {
     ].join('');
     const dateLabel = currentView === 'applied' ? 'Applied' : 'From email';
     const dateVal = currentView === 'applied' ? fmtDate(j.applied_at) : fmtDate(j.email_date);
-    const extra = currentView === 'active'
+    const isStarred = !!j.starred;
+    const starBtn = (currentView === 'active' || currentView === 'starred')
+      ? `<button type="button" class="star-btn sm${isStarred ? ' on' : ''}" data-url="${escAttr(j.url)}" data-action="${isStarred ? 'unstar' : 'star'}" aria-label="${isStarred ? 'Unstar' : 'Star'}">${isStarred ? '★' : '☆'}</button>`
+      : '';
+    const extra = currentView === 'active' || currentView === 'starred'
       ? `<button type="button" class="sm ok" data-url="${escAttr(j.url)}" data-action="applied">Mark applied</button>`
       : `<button type="button" class="sm ghost" data-url="${escAttr(j.url)}" data-action="active">Back to open</button>`;
     return `<article class="job">
       <div>
-        <div class="company">${esc(j.company)}</div>
-        <div class="title">${esc(j.title || 'Untitled role')}</div>
-        <div class="tags">${tags}</div>
+        <div class="job-head">
+          ${starBtn}
+          <div>
+            <div class="company">${esc(j.company)}</div>
+            <div class="title">${esc(j.title || 'Untitled role')}</div>
+            <div class="tags">${tags}</div>
+          </div>
+        </div>
       </div>
       <div class="meta">
         <span>${esc(loc)}</span>
@@ -449,7 +477,7 @@ function renderJobs(results) {
     </article>`;
   }).join('');
   box.querySelectorAll('button[data-action]').forEach(btn => {
-    btn.onclick = () => jobAction(btn.dataset.url, btn.dataset.action);
+    btn.onclick = () => jobAction(btn.getAttribute('data-url'), btn.getAttribute('data-action'));
   });
 }
 
@@ -512,6 +540,7 @@ document.querySelectorAll('.chip[data-days]').forEach(chip => {
 document.getElementById('showall').onchange = refreshResults;
 document.getElementById('search').oninput = () => renderJobs(lastResults);
 document.getElementById('tabactive').onclick = () => setView('active');
+document.getElementById('tabstarred').onclick = () => setView('starred');
 document.getElementById('tabapplied').onclick = () => setView('applied');
 refreshStatus();
 refreshResults();

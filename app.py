@@ -18,6 +18,8 @@ app = Flask(__name__)
 app.secret_key = os.environ.get("FLASK_SECRET_KEY", "dev-secret-change-me")
 app.config["TEMPLATES_AUTO_RELOAD"] = True
 
+db.init_db()
+
 # Scan worker state (single-user local app)
 _scan_lock = threading.Lock()
 _scan = {
@@ -197,7 +199,7 @@ def api_scan_status():
 @app.get("/api/results")
 def api_results():
     view = request.args.get("view", "active")
-    if view not in ("active", "applied"):
+    if view not in ("active", "applied", "starred"):
         view = "active"
     qualifying_only = request.args.get("all") != "1"
     return jsonify(
@@ -222,8 +224,12 @@ def api_job_action():
         db.mark_job_applied(url)
     elif action == "active":
         db.mark_job_active(url)
+    elif action in ("star", "unstar"):
+        ok = db.set_job_starred(url, action == "star")
+        if not ok:
+            return jsonify({"error": "job not found or not in open list"}), 404
     else:
-        return jsonify({"error": "action must be deleted, applied, or active"}), 400
+        return jsonify({"error": "action must be deleted, applied, active, star, or unstar"}), 400
     return jsonify({"ok": True, "action": action, "url": url})
 
 
