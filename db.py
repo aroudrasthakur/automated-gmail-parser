@@ -5,6 +5,8 @@ import sqlite3
 import time
 from contextlib import contextmanager
 
+import chicago
+
 DB_PATH = os.environ.get("GMAIL_PARSER_DB", os.path.join(os.path.dirname(__file__), "data", "jobs.db"))
 
 
@@ -100,6 +102,39 @@ def get_scan_coverage_days():
 
 def set_scan_coverage_days(days):
     _meta_set("scan_coverage_days", max(0, int(days)))
+
+
+def get_scanned_days():
+    raw = _meta_get("scanned_days", "")
+    if not raw:
+        return set()
+    return {s for s in raw.split(",") if s}
+
+
+def add_scanned_days(dates):
+    current = get_scanned_days()
+    for d in dates:
+        if hasattr(d, "isoformat"):
+            current.add(d.isoformat())
+        else:
+            current.add(str(d))
+    _meta_set("scanned_days", ",".join(sorted(current)))
+
+
+def is_day_scanned(day) -> bool:
+    iso = day.isoformat() if hasattr(day, "isoformat") else str(day)
+    return iso in get_scanned_days()
+
+
+def has_email_on_day(day):
+    """True if any stored email landed on this calendar day (local timezone)."""
+    after, before = chicago.day_utc_bounds(day)
+    with get_db() as db:
+        row = db.execute(
+            "SELECT 1 FROM emails WHERE internal_ts >= ? AND internal_ts < ?",
+            (after, before),
+        ).fetchone()
+        return row is not None
 
 
 def email_scanned(message_id):
@@ -215,4 +250,5 @@ def stats():
             "applied": applied,
             "starred": starred,
             "scan_coverage_days": get_scan_coverage_days(),
+            "scanned_days": sorted(get_scanned_days()),
         }

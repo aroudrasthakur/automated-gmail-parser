@@ -221,6 +221,31 @@
   button.star-btn.on { color: #ffd76a; border-color: rgba(255,215,106,.35); background: rgba(255,215,106,.08); }
   button.star-btn:hover { transform: none; background: rgba(255,255,255,.05); }
   .job-head { display: flex; align-items: flex-start; gap: 10px; }
+  .scan-modes { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+  [hidden], .is-hidden { display: none !important; }
+  .calendar-wrap { margin-top: 8px; }
+  .calendar-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+  .calendar-head b { font-size: 15px; }
+  .calendar-head button { padding: 6px 10px; box-shadow: none; }
+  .calendar-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; }
+  .cal-dow { text-align: center; font-size: 11px; color: var(--muted); padding: 4px 0; }
+  .cal-day {
+    aspect-ratio: 1;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: #10182c;
+    color: var(--fg);
+    box-shadow: none;
+    font-size: 13px;
+    padding: 0;
+  }
+  .cal-day:hover:not(:disabled) { background: #152038; transform: none; }
+  .cal-day.other { color: var(--muted); opacity: .45; }
+  .cal-day.today { border-color: rgba(91,140,255,.55); }
+  .cal-day.selected { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .cal-day.scanned:not(.selected) { box-shadow: inset 0 0 0 2px rgba(61,207,142,.35); }
+  .cal-day:disabled { opacity: .35; cursor: not-allowed; }
+  .cal-spacer { visibility: hidden; pointer-events: none; }
   .empty {
     text-align: center; padding: 48px 16px; color: var(--muted);
     border: 1px dashed var(--line-strong); border-radius: 16px;
@@ -252,7 +277,7 @@
       <div class="logo">SL</div>
       <div>
         <h1>SweList Job Scanner</h1>
-        <p class="sub">Pulls “New Jobs Posted Today” emails from <b>noreply@swelist.com</b>, scrapes each Simplify posting, and keeps USA roles that do not say “No H1B Sponsorship”.</p>
+        <p class="sub">Finds SweList job emails and keeps USA roles that offer H1B sponsorship.</p>
       </div>
     </div>
     <div class="auth-box">
@@ -265,21 +290,24 @@
   <div class="grid">
     <section class="card">
       <h2>Scan inbox</h2>
-      <p class="hint" id="coveragehint">Choose how far back to look. Days you already scanned are skipped automatically.</p>
-      <div class="scan-row">
+      <p class="hint" id="coveragehint">Choose a range or a specific day.</p>
+      <div class="scan-modes">
+        <button type="button" class="chip active" id="modrange">Last N days</button>
+        <button type="button" class="chip" id="modday">Calendar</button>
+      </div>
+      <div class="scan-row" id="rangepanel">
         <div class="scan-actions">
           <div class="field">
-            <label for="days">Days back</label>
+            <label for="days">Days</label>
             <div class="stepper">
               <button type="button" id="daysminus" aria-label="Fewer days">−</button>
               <input type="number" id="days" value="1" min="1" max="60">
               <button type="button" id="daysplus" aria-label="More days">+</button>
             </div>
           </div>
-          <button id="scanbtn" disabled>Start scan</button>
         </div>
         <div class="field">
-          <label>Quick range</label>
+          <label>Shortcuts</label>
           <div class="presets">
             <button type="button" class="chip active" data-days="1">Today</button>
             <button type="button" class="chip" data-days="3">3 days</button>
@@ -289,6 +317,18 @@
           </div>
         </div>
       </div>
+      <div class="calendar-wrap is-hidden" id="daypanel">
+        <div class="calendar-head">
+          <button type="button" class="ghost sm" id="calprev" aria-label="Previous month">‹</button>
+          <b id="caltitle"></b>
+          <button type="button" class="ghost sm" id="calnext" aria-label="Next month">›</button>
+        </div>
+        <div class="calendar-grid" id="calgrid"></div>
+        <p class="hint" id="calselected" style="min-height:1.2em"></p>
+      </div>
+      <div class="scan-actions" style="margin: 12px 0 8px;">
+        <button id="scanbtn" disabled>Start scan</button>
+      </div>
       <div class="bar"><div id="barfill"></div></div>
       <div class="scan-meta">
         <div id="progress">Ready when Gmail is connected.</div>
@@ -297,7 +337,7 @@
 
     <section class="card">
       <h2>Overview</h2>
-      <p class="hint">A snapshot of what is stored locally after scans.</p>
+      <p class="hint">What’s saved from your scans.</p>
       <div class="stats" style="margin-top:16px">
         <div class="stat"><b id="statEmails">0</b><span>Emails scanned</span></div>
         <div class="stat"><b id="statJobs">0</b><span>Jobs stored</span></div>
@@ -326,6 +366,11 @@
 let pollTimer = null;
 let currentView = 'active';
 let lastResults = [];
+let scanMode = 'range';
+let chicagoToday = '';
+let scannedDays = new Set();
+let selectedDate = '';
+let calendarMonth = null; // YYYY-MM-01
 
 function toast(msg, kind) {
   const el = document.getElementById('toast');
@@ -341,6 +386,73 @@ function setDays(value) {
   document.querySelectorAll('.chip[data-days]').forEach(chip => {
     chip.classList.toggle('active', Number(chip.dataset.days) === days);
   });
+}
+
+function chicagoYmdNow() {
+  return new Date().toLocaleDateString('en-CA', { timeZone: 'America/Chicago' });
+}
+
+function setScanMode(mode) {
+  scanMode = mode;
+  document.getElementById('modrange').classList.toggle('active', mode === 'range');
+  document.getElementById('modday').classList.toggle('active', mode === 'day');
+  document.getElementById('rangepanel').classList.toggle('is-hidden', mode !== 'range');
+  document.getElementById('daypanel').classList.toggle('is-hidden', mode !== 'day');
+  if (mode === 'day') renderCalendar();
+}
+
+function parseYmd(s) {
+  const [y, m, d] = s.split('-').map(Number);
+  return new Date(y, m - 1, d);
+}
+
+function formatYmd(d) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+function renderCalendar() {
+  const grid = document.getElementById('calgrid');
+  const title = document.getElementById('caltitle');
+  const sel = document.getElementById('calselected');
+  if (!chicagoToday) chicagoToday = chicagoYmdNow();
+  if (!calendarMonth) calendarMonth = chicagoToday.slice(0, 8) + '01';
+  if (!selectedDate) selectedDate = chicagoToday;
+  if (!grid) return;
+  const monthStart = parseYmd(calendarMonth);
+  title.textContent = monthStart.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+  const today = chicagoToday ? parseYmd(chicagoToday) : null;
+  const firstDow = monthStart.getDay();
+  const daysInMonth = new Date(monthStart.getFullYear(), monthStart.getMonth() + 1, 0).getDate();
+  let html = ['Su','Mo','Tu','We','Th','Fr','Sa'].map(d => `<div class="cal-dow">${d}</div>`).join('');
+  for (let i = 0; i < firstDow; i++) html += '<div class="cal-spacer"></div>';
+  for (let day = 1; day <= daysInMonth; day++) {
+    const d = new Date(monthStart.getFullYear(), monthStart.getMonth(), day);
+    const iso = formatYmd(d);
+    const isFuture = today && d > today;
+    const cls = ['cal-day'];
+    if (iso === chicagoToday) cls.push('today');
+    if (iso === selectedDate) cls.push('selected');
+    if (scannedDays.has(iso)) cls.push('scanned');
+    html += `<button type="button" class="${cls.join(' ')}" data-date="${iso}" ${isFuture ? 'disabled' : ''}>${day}</button>`;
+  }
+  grid.innerHTML = html;
+  grid.querySelectorAll('.cal-day[data-date]').forEach(btn => {
+    btn.onclick = () => {
+      selectedDate = btn.dataset.date;
+      renderCalendar();
+    };
+  });
+  sel.textContent = selectedDate || '';
+}
+
+function shiftCalendarMonth(delta) {
+  const d = parseYmd(calendarMonth);
+  d.setMonth(d.getMonth() + delta);
+  calendarMonth = formatYmd(new Date(d.getFullYear(), d.getMonth(), 1));
+  renderCalendar();
 }
 
 async function refreshStatus() {
@@ -368,10 +480,14 @@ async function refreshStatus() {
       ? 'Connect Gmail to start scanning.'
       : 'Add credentials.json, then connect Gmail.';
   }
-  const cov = s.stats.scan_coverage_days || 0;
-  document.getElementById('coveragehint').textContent = cov
-    ? `Already scanned the last ${cov} day${cov === 1 ? '' : 's'}. A longer range only fetches older mail.`
-    : 'Choose how far back to look. Days you already scanned are skipped automatically.';
+  chicagoToday = s.today || s.chicago_today || chicagoYmdNow();
+  scannedDays = new Set((s.stats && s.stats.scanned_days) || []);
+  if (!selectedDate) selectedDate = chicagoToday;
+  if (!calendarMonth) calendarMonth = chicagoToday.slice(0, 8) + '01';
+  const cov = (s.stats && s.stats.scan_coverage_days) || 0;
+  const scannedCount = scannedDays.size;
+  document.getElementById('coveragehint').textContent = 'Choose a range or a specific day.';
+  if (scanMode === 'day') renderCalendar();
   document.getElementById('statEmails').textContent = s.stats.emails;
   document.getElementById('statJobs').textContent = s.stats.jobs;
   document.getElementById('statOpen').textContent = s.stats.qualifying;
@@ -383,7 +499,9 @@ async function refreshStatus() {
 
 function fmtDate(ts) {
   if (!ts) return '—';
-  return new Date(ts * 1000).toLocaleDateString(undefined, {year:'numeric', month:'short', day:'numeric'});
+  return new Date(ts * 1000).toLocaleDateString(undefined, {
+    year: 'numeric', month: 'short', day: 'numeric', timeZone: 'America/Chicago'
+  });
 }
 
 function setView(view) {
@@ -500,12 +618,14 @@ async function poll() {
   const bar = document.getElementById('barfill');
   let msg = '', pct = 0;
   p.dataset.locked = s.running ? '1' : '';
-  if (s.stage === 'searching') msg = 'Searching Gmail…';
+  if (s.stage === 'searching') msg = 'Searching inbox…';
   else if (s.stage === 'reading_email') { msg = `Reading emails ${s.emails_done}/${s.emails_found}`; pct = s.emails_found ? 10 + 30*s.emails_done/s.emails_found : 10; }
-  else if (s.stage === 'scraping_jobs') { msg = `Scraping jobs ${s.jobs_done}/${s.jobs_found}${s.current ? ` — ${s.current}` : ''}`; pct = s.jobs_found ? 40 + 60*s.jobs_done/s.jobs_found : 40; }
-  else if (s.stage === 'done') { msg = `Scan finished. ${s.emails_done} email(s), ${s.jobs_done} job(s) scraped.`; pct = 100; }
+  else if (s.stage === 'scraping_jobs') { msg = `Saving jobs ${s.jobs_done}/${s.jobs_found}${s.current ? ` — ${s.current}` : ''}`; pct = s.jobs_found ? 40 + 60*s.jobs_done/s.jobs_found : 40; }
+  else if (s.stage === 'done') {
+    msg = s.jobs_done ? `Found ${s.jobs_done} job${s.jobs_done === 1 ? '' : 's'}.` : (s.emails_found ? 'No new jobs.' : 'No new job emails.');
+    pct = 100;
+  }
   else if (s.stage === 'error') { msg = 'Scan failed: ' + (s.error || 'unknown'); pct = 100; }
-  if (s.range_note) msg = (msg ? msg + ' ' : '') + s.range_note;
   p.textContent = msg;
   bar.style.width = pct + '%';
   document.getElementById('scanbtn').disabled = !!s.running;
@@ -522,8 +642,11 @@ async function poll() {
 }
 
 document.getElementById('scanbtn').onclick = async () => {
-  const days = document.getElementById('days').value || 1;
-  const resp = await fetch('/api/scan', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({days: +days})});
+  const body = scanMode === 'day'
+    ? { date: selectedDate || chicagoToday }
+    : { days: +(document.getElementById('days').value || 1) };
+  if (scanMode === 'day' && !body.date) { toast('Pick a day on the calendar.', 'error'); return; }
+  const resp = await fetch('/api/scan', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
   if (resp.status === 401) { toast('Connect Gmail first.', 'error'); return; }
   if (resp.status === 409) { toast('A scan is already running.', 'error'); return; }
   if (pollTimer) clearInterval(pollTimer);
@@ -531,6 +654,10 @@ document.getElementById('scanbtn').onclick = async () => {
   poll();
 };
 
+document.getElementById('modrange').onclick = () => setScanMode('range');
+document.getElementById('modday').onclick = () => setScanMode('day');
+document.getElementById('calprev').onclick = () => shiftCalendarMonth(-1);
+document.getElementById('calnext').onclick = () => shiftCalendarMonth(1);
 document.getElementById('days').onchange = () => setDays(document.getElementById('days').value);
 document.getElementById('daysminus').onclick = () => setDays(Number(document.getElementById('days').value) - 1);
 document.getElementById('daysplus').onclick = () => setDays(Number(document.getElementById('days').value) + 1);

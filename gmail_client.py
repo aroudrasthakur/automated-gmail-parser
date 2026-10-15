@@ -1,12 +1,18 @@
 """Gmail API client: OAuth2 auth + swelist email search/fetch."""
 
 import base64
+import logging
 import os
 import time
+from datetime import date, datetime, timezone
 
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
+
+import chicago
+
+log = logging.getLogger(__name__)
 
 SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -46,17 +52,8 @@ def get_service():
     return build("gmail", "v1", credentials=creds, cache_discovery=False)
 
 
-def search_message_ids(service, days, skip_recent_days=0):
-    """Message IDs from swelist in the last `days` days, optionally excluding the most recent window."""
-    now = int(time.time())
-    after = now - days * 86400
-    if skip_recent_days > 0:
-        before = now - skip_recent_days * 86400
-        if before <= after:
-            return []
-        query = f'from:{SENDER} after:{after} before:{before} "{SUBJECT_CONTAINS}"'
-    else:
-        query = f'from:{SENDER} after:{after} "{SUBJECT_CONTAINS}"'
+def _list_ids(service, query):
+    log.info("gmail search: %s", query)
     ids = []
     page_token = None
     while True:
@@ -70,6 +67,63 @@ def search_message_ids(service, days, skip_recent_days=0):
         page_token = resp.get("nextPageToken")
         if not page_token:
             return ids
+
+
+def is_jobs_digest(subject):
+    """SweList daily *jobs* email (not internships)."""
+    s = (subject or "").lower()
+    return "jobs posted today" in s and "internship" not in s
+
+
+def _keep_in_window(service, ids, after, before):
+    if not ids:
+        return []
+    start_day = datetime.fromtimestamp(after, chicago.CHICAGO).date()
+    end_day = datetime.fromtimestamp((before or after + 1) - 1, chicago.CHICAGO).date()
+    kept = []
+    for mid in ids:
+        msg = (
+            service.users()
+            .messages()
+            .get(userId="me", id=mid, format="metadata", metadataHeaders=["Subject"])
+            .execute()
+        )
+        ts = int(msg.get("internalDate", 0)) // 1000
+        subject = _header(msg.get("payload", {}).get("headers", []), "Subject")
+        if not is_jobs_digest(subject):
+            continue
+        chi_day = datetime.fromtimestamp(ts, chicago.CHICAGO).date()
+        utc_day = datetime.fromtimestamp(ts, timezone.utc).date()
+        if start_day <= chi_day <= end_day or start_day <= utc_day <= end_day:
+            kept.append(mid)
+            log.info("keep %s %s %s", mid, chi_day, subject)
+    log.info("gmail search kept %d/%d", len(kept), len(ids))
+    return kept
+
+
+def _search_query(service, after: int, before: int | None = None):
+    """Find SweList digest emails in a time window without brittle Gmail date phrases."""
+    age_days = max(1, int((time.time() - after) / 86400) + 2)
+    query = f"from:swelist.com newer_than:{age_days}d"
+    ids = _list_ids(service, query)
+    return _keep_in_window(service, ids, after, before)
+
+
+def search_message_ids(service, days, skip_recent_days=0):
+    bounds = chicago.range_utc_bounds(days, skip_recent_days)
+    if not bounds:
+        return []
+    after, before = bounds
+    return _search_query(service, after, before)
+
+
+def search_message_ids_for_day(service, day: date):
+    after, before = chicago.day_utc_bounds(day)
+    return _search_query(service, after, before)
+
+
+def search_message_ids_between(service, after: int, before: int):
+    return _search_query(service, after, before)
 
 
 def _header(headers, name):

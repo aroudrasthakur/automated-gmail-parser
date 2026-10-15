@@ -7,6 +7,7 @@ import threading
 from flask import Flask, jsonify, redirect, render_template, request, session, url_for
 from google_auth_oauthlib.flow import Flow
 
+import chicago
 import db
 import gmail_client
 import scraper
@@ -41,72 +42,90 @@ def _reset_scan():
     )
 
 
-def run_scan(days):
-    _reset_scan()
-    try:
-        coverage = db.get_scan_coverage_days()
-        skip_recent = min(coverage, days)
-        if coverage > 0 and days > coverage:
-            _scan["range_note"] = (
-                f"Scanning days {coverage + 1}–{days} "
-                f"({coverage} most recent day(s) already covered)"
-            )
-        elif days <= coverage:
-            _scan["range_note"] = (
-                f"Last {days} day(s) already covered; only checking older mail if the window extends further"
-            )
-        else:
-            _scan["range_note"] = ""
-
-        service = gmail_client.get_service()
-        ids = gmail_client.search_message_ids(service, days, skip_recent_days=skip_recent)
-        _scan["emails_found"] = len(ids)
-        todo = [mid for mid in ids if not db.email_scanned(mid)]
-        log.info("scan: %d emails matched, %d new", len(ids), len(todo))
-
-        for mid in todo:
-            _scan["stage"] = "reading_email"
-            _scan["current"] = mid
-            msg = gmail_client.get_message(service, mid)
-            if gmail_client.SUBJECT_CONTAINS not in (msg["subject"] or "").lower():
-                db.record_email(mid, msg["thread_id"], msg["subject"], msg["sender"], msg["internal_ts"])
-                _scan["emails_done"] += 1
-                continue
-
-            jobs = scraper.extract_jobs_from_email(msg["html"])
-            new_jobs = [j for j in jobs if not db.job_scanned(j["url"])]
-            _scan["jobs_found"] += len(new_jobs)
-            log.info("email %s: %d links, %d new", mid, len(jobs), len(new_jobs))
-
-            _scan["stage"] = "scraping_jobs"
-            urls = [j["url"] for j in new_jobs]
-            by_url = {j["url"]: j for j in new_jobs}
-            for url, info in scraper.fetch_jobs(urls).items():
-                meta = by_url[url]
-                company = info["company"] or meta["company"] or "Unknown"
-                title = info["title"] or meta["title"]
-                qualifies = (not info["no_h1b_tag"]) and info["in_usa"] and not info["error"]
-                db.record_job(
-                    url=url,
-                    company=company,
-                    title=title,
-                    email_id=mid,
-                    email_date=msg["internal_ts"],
-                    sponsors_h1b=None if info["sponsors_h1b"] is None else int(info["sponsors_h1b"]),
-                    no_h1b_tag=int(info["no_h1b_tag"]),
-                    location_text=info["location_text"],
-                    in_usa=int(info["in_usa"]),
-                    qualifies=int(qualifies),
-                    error=info["error"],
-                )
-                _scan["jobs_done"] += 1
-                _scan["current"] = company
-
+def _process_messages(service, ids):
+    todo = [mid for mid in ids if not db.email_scanned(mid)]
+    log.info("scan: %d emails matched, %d new", len(ids), len(todo))
+    for mid in todo:
+        _scan["stage"] = "reading_email"
+        _scan["current"] = mid
+        msg = gmail_client.get_message(service, mid)
+        if not gmail_client.is_jobs_digest(msg["subject"]):
             db.record_email(mid, msg["thread_id"], msg["subject"], msg["sender"], msg["internal_ts"])
             _scan["emails_done"] += 1
+            continue
+
+        jobs = scraper.extract_jobs_from_email(msg["html"])
+        new_jobs = [j for j in jobs if not db.job_scanned(j["url"])]
+        _scan["jobs_found"] += len(new_jobs)
+        log.info("email %s: %d links, %d new", mid, len(jobs), len(new_jobs))
+
+        _scan["stage"] = "scraping_jobs"
+        urls = [j["url"] for j in new_jobs]
+        by_url = {j["url"]: j for j in new_jobs}
+        for url, info in scraper.fetch_jobs(urls).items():
+            meta = by_url[url]
+            company = info["company"] or meta["company"] or "Unknown"
+            title = info["title"] or meta["title"]
+            qualifies = (not info["no_h1b_tag"]) and info["in_usa"] and not info["error"]
+            db.record_job(
+                url=url,
+                company=company,
+                title=title,
+                email_id=mid,
+                email_date=msg["internal_ts"],
+                sponsors_h1b=None if info["sponsors_h1b"] is None else int(info["sponsors_h1b"]),
+                no_h1b_tag=int(info["no_h1b_tag"]),
+                location_text=info["location_text"],
+                in_usa=int(info["in_usa"]),
+                qualifies=int(qualifies),
+                error=info["error"],
+            )
+            _scan["jobs_done"] += 1
+            _scan["current"] = company
+
+        db.record_email(mid, msg["thread_id"], msg["subject"], msg["sender"], msg["internal_ts"])
+        _scan["emails_done"] += 1
+
+
+def run_scan(days=None, scan_date=None):
+    _reset_scan()
+    try:
+        service = gmail_client.get_service()
+        scanned_dates = []
+
+        today = chicago.chicago_today()
+        if scan_date:
+            day = chicago.parse_chicago_date(scan_date)
+            if day > today:
+                raise ValueError("Cannot scan a future date.")
+            ids = gmail_client.search_message_ids_for_day(service, day)
+            scanned_dates = [day]
+        else:
+            days = max(1, min(int(days or 1), 60))
+            all_days = chicago.days_in_range(days, 0)
+            pending = [
+                d for d in all_days
+                if d == today or not db.has_email_on_day(d)
+            ]
+            bounds = chicago.bounds_for_days(pending)
+            if not bounds:
+                ids = []
+            else:
+                after, before = bounds
+                ids = gmail_client.search_message_ids_between(service, after, before)
+            scanned_dates = pending
+
+        _scan["emails_found"] = len(ids)
+        _process_messages(service, ids)
 
         _scan["stage"] = "done"
-        db.set_scan_coverage_days(max(coverage, days))
+        if scan_date:
+            if scanned_dates:
+                db.add_scanned_days(scanned_dates)
+        else:
+            db.set_scan_coverage_days(max(db.get_scan_coverage_days(), days))
+            if scanned_dates:
+                db.add_scanned_days(scanned_dates)
     except Exception as e:  # noqa: BLE001 - surface anything to the UI
         log.exception("scan failed")
         _scan["error"] = str(e)
@@ -127,6 +146,7 @@ def api_status():
             "authenticated": gmail_client.is_authenticated(),
             "credentials_present": os.path.exists(gmail_client.CREDENTIALS_FILE),
             "stats": db.stats(),
+            "today": chicago.chicago_today().isoformat(),
         }
     )
 
@@ -180,15 +200,28 @@ def disconnect():
 @app.post("/api/scan")
 def api_scan():
     body = request.get_json(silent=True) or {}
-    days = max(1, min(int(body.get("days", 1)), 60))
     if not gmail_client.is_authenticated():
         return jsonify({"error": "not_authenticated"}), 401
+    scan_date = (body.get("date") or "").strip()
+    kwargs = {}
+    payload = {"started": True}
+    if scan_date:
+        try:
+            chicago.parse_chicago_date(scan_date)
+        except ValueError:
+            return jsonify({"error": "date must be YYYY-MM-DD"}), 400
+        kwargs["scan_date"] = scan_date
+        payload["date"] = scan_date
+    else:
+        days = max(1, min(int(body.get("days", 1)), 60))
+        kwargs["days"] = days
+        payload["days"] = days
     with _scan_lock:
         if _scan["running"]:
             return jsonify({"error": "scan already running"}), 409
-        thread = threading.Thread(target=run_scan, args=(days,), daemon=True)
+        thread = threading.Thread(target=run_scan, kwargs=kwargs, daemon=True)
         thread.start()
-    return jsonify({"started": True, "days": days})
+    return jsonify(payload)
 
 
 @app.get("/api/scan_status")
